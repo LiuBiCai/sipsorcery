@@ -111,7 +111,7 @@ namespace SIPSorcery.Media
         private bool _isStarted;
         private bool _isPaused;
         private bool _isClosed;
-        private AudioEncoder _audioEncoder;
+        private IAudioEncoder _audioEncoder;
 
         // Fields for interrupting the main audio source with a different stream. For example playing
         // an announcement over music etc.
@@ -173,7 +173,7 @@ namespace SIPSorcery.Media
         /// <param name="audioOptions">Optional. The options that determine the type of audio to stream to the remote party. 
         /// Example type of audio sources are music, silence, white noise etc.</param>
         public AudioExtrasSource(
-            AudioEncoder audioEncoder,
+            IAudioEncoder audioEncoder,
             AudioSourceOptions audioOptions = null)
         {
             _audioEncoder = audioEncoder;
@@ -396,22 +396,29 @@ namespace SIPSorcery.Media
         /// </summary>
         private void SendMusicSample(object state)
         {
-            if (!_isClosed && !_streamSendInProgress && _musicStreamReader != null)
+            try
             {
-                lock (_musicStreamReader)
+                if (!_isClosed && !_streamSendInProgress && _musicStreamReader != null)
                 {
-                    var pcm = GetPcmSampleFromReader(_musicStreamReader, _audioOpts.MusicInputSamplingRate, out int samplesRead);
-
-                    if (samplesRead > 0)
+                    lock (_musicStreamReader)
                     {
-                        EncodeAndSend(pcm, (int)_audioOpts.MusicInputSamplingRate);
-                    }
+                        var pcm = GetPcmSampleFromReader(_musicStreamReader, _audioOpts.MusicInputSamplingRate, out int samplesRead);
 
-                    if (samplesRead == 0)
-                    {
-                        _musicStreamReader.BaseStream.Position = 0;
+                        if (samplesRead > 0)
+                        {
+                            EncodeAndSend(pcm, (int)_audioOpts.MusicInputSamplingRate);
+                        }
+
+                        if (samplesRead == 0)
+                        {
+                            _musicStreamReader.BaseStream.Position = 0;
+                        }
                     }
                 }
+            }
+            catch (Exception e)
+            {
+                Log.LogWarning(e, "Stream Closed.");
             }
         }
 
@@ -420,13 +427,20 @@ namespace SIPSorcery.Media
         /// </summary>
         private void SendSilenceSample(object state)
         {
-            if (!_isClosed && !_streamSendInProgress)
+            try
             {
-                lock (_sendSampleTimer)
+                if (!_isClosed && !_streamSendInProgress && _sendSampleTimer != null)
                 {
-                    short[] silencePcm = new short[_audioFormatManager.SelectedFormat.ClockRate / 1000 * _audioSamplePeriodMilliseconds];
-                    EncodeAndSend(silencePcm, _audioFormatManager.SelectedFormat.ClockRate);
+                    lock (_sendSampleTimer)
+                    {
+                        short[] silencePcm = new short[_audioFormatManager.SelectedFormat.ClockRate / 1000 * _audioSamplePeriodMilliseconds];
+                        EncodeAndSend(silencePcm, _audioFormatManager.SelectedFormat.ClockRate);
+                    }
                 }
+            }
+            catch (Exception e)
+            {
+                Log.LogError(e, "Exception sending silence sample");
             }
         }
 
@@ -435,17 +449,24 @@ namespace SIPSorcery.Media
         /// </summary>
         private void SendSignalGeneratorSample(object state)
         {
-            if (!_isClosed && !_streamSendInProgress)
+            try
             {
-                lock (_sendSampleTimer)
+                if (!_isClosed && !_streamSendInProgress && _sendSampleTimer != null)
                 {
-                    // Get the signal generator to generate the samples and then convert from signed linear to PCM.
-                    float[] linear = new float[_audioFormatManager.SelectedFormat.ClockRate / 1000 * _audioSamplePeriodMilliseconds];
-                    _signalGenerator.Read(linear, 0, linear.Length);
-                    short[] pcm = linear.Select(x => (short)(x * LINEAR_MAXIMUM)).ToArray();
+                    lock (_sendSampleTimer)
+                    {
+                        // Get the signal generator to generate the samples and then convert from signed linear to PCM.
+                        float[] linear = new float[_audioFormatManager.SelectedFormat.ClockRate / 1000 * _audioSamplePeriodMilliseconds];
+                        _signalGenerator.Read(linear, 0, linear.Length);
+                        short[] pcm = linear.Select(x => (short)(x * LINEAR_MAXIMUM)).ToArray();
 
-                    EncodeAndSend(pcm, _audioFormatManager.SelectedFormat.ClockRate);
+                        EncodeAndSend(pcm, _audioFormatManager.SelectedFormat.ClockRate);
+                    }
                 }
+            }
+            catch (Exception e)
+            {
+                Log.LogError(e, "Exception sending signal generator sample");
             }
         }
 
@@ -539,7 +560,7 @@ namespace SIPSorcery.Media
             {
                 if (pcmSampleRate != _audioFormatManager.SelectedFormat.ClockRate)
                 {
-                    pcm = _audioEncoder.Resample(pcm, pcmSampleRate, _audioFormatManager.SelectedFormat.ClockRate);
+                    pcm = PcmResampler.Resample(pcm, pcmSampleRate, _audioFormatManager.SelectedFormat.ClockRate);
                 }
 
                 byte[] encodedSample = _audioEncoder.EncodeAudio(pcm, _audioFormatManager.SelectedFormat);

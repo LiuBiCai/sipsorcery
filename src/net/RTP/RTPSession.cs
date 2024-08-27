@@ -180,7 +180,7 @@ namespace SIPSorcery.Net
 
         private Boolean m_acceptRtpFromAny = false;
         private string m_sdpSessionID = null;           // Need to maintain the same SDP session ID for all offers and answers.
-        private int m_sdpAnnouncementVersion = 0;       // The SDP version needs to increase whenever the local SDP is modified (see https://tools.ietf.org/html/rfc6337#section-5.2.5).
+        private ulong m_sdpAnnouncementVersion = 0;       // The SDP version needs to increase whenever the local SDP is modified (see https://tools.ietf.org/html/rfc6337#section-5.2.5).
         internal int m_rtpChannelsCount = 0;            // Need to know the number of RTP Channels
 
         // The stream used for the underlying RTP session to create a single RTP channel that will
@@ -1029,7 +1029,7 @@ namespace SIPSorcery.Net
                         SDPAudioVideoMediaFormat.SortMediaCapability(capabilities, currentMediaStream.LocalTrack?.Capabilities);
 
                         currentMediaStream.RemoteTrack.Capabilities = capabilities;
-                        //currentMediaStream.LocalTrack.Capabilities = capabilities;
+                        currentMediaStream.LocalTrack.Capabilities = capabilities;
 
                         if (currentMediaStream.MediaType == SDPMediaTypesEnum.audio)
                         {
@@ -1585,7 +1585,7 @@ namespace SIPSorcery.Net
         /// <summary>
         /// Generates a session description from the provided list of MediaStream.
         /// </summary>
-        /// <param name="tracks">The list of tracks to generate the session description for.</param>
+        /// <param name="mediaStreamList">The list of tracks to generate the session description for.</param>
         /// <param name="connectionAddress">Optional. If set this address will be used as 
         /// the SDP Connection address. If not specified the Internet facing address will
         /// be used. IPAddress.Any and IPAddress. Any and IPv6Any are special cases. If they are set the respective
@@ -1799,7 +1799,6 @@ namespace SIPSorcery.Net
         /// Creates a new RTP channel (which manages the UDP socket sending and receiving RTP
         /// packets) for use with this session.
         /// </summary>
-        /// <param name="mediaType">The type of media the RTP channel is for. Must be audio or video.</param>
         /// <returns>A new RTPChannel instance.</returns>
         protected virtual RTPChannel CreateRtpChannel()
         {
@@ -2100,7 +2099,7 @@ namespace SIPSorcery.Net
                     else
                     {
                         // We close peer connection only if there is no more local/remote tracks on the primary stream
-                        if ((m_primaryStream.RemoteTrack == null) && (m_primaryStream.LocalTrack == null))
+                        if ((m_primaryStream?.RemoteTrack == null) && (m_primaryStream?.LocalTrack == null))
                         {
                             OnRtcpBye?.Invoke(rtcpPkt.Bye.Reason);
                         }
@@ -2401,6 +2400,27 @@ namespace SIPSorcery.Net
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Allows additional control for sending raw RTP payloads (on the primary one). No framing or other processing is carried out.
+        /// </summary>
+        /// <param name="mediaType">The media type of the RTP packet being sent. Must be audio or video.</param>
+        /// <param name="payload">The RTP packet payload.</param>
+        /// <param name="timestamp">The timestamp to set on the RTP header.</param>
+        /// <param name="markerBit">The value to set on the RTP header marker bit, should be 0 or 1.</param>
+        /// <param name="payloadTypeID">The payload ID to set in the RTP header.</param>
+        /// <param name="seqNum">The sequence number of the packet.</param>
+        public void SendRtpRaw(SDPMediaTypesEnum mediaType, byte[] payload, uint timestamp, int markerBit, int payloadTypeID, ushort seqNum)
+        {
+            if (mediaType == SDPMediaTypesEnum.audio)
+            {
+                AudioStream.SendRtpRaw(payload, timestamp, markerBit, payloadTypeID, seqNum);
+            }
+            else if (mediaType == SDPMediaTypesEnum.video)
+            {
+                VideoStream?.SendRtpRaw(payload, timestamp, markerBit, payloadTypeID, seqNum);
+            }
         }
 
         /// <summary>
